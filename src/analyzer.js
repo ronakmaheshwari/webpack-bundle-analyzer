@@ -317,6 +317,20 @@ function getViewerData(bundleStats, bundleDir, opts) {
     );
   });
 
+  const rootModules = getBundleModules(bundleStats);
+  const rootModulesByChunk = getModulesByChunk(rootModules);
+  /** @type {Map<StatsAsset, StatsModule[]>} */
+  const rootAssetModules = new Map();
+
+  for (const statAsset of bundleStats.assets) {
+    if (!statAsset.isChild) {
+      rootAssetModules.set(
+        statAsset,
+        getAssetModulesByChunk(statAsset, rootModulesByChunk),
+      );
+    }
+  }
+
   // Trying to parse bundle assets and get real module sizes if `bundleDir` is provided
   /** @type {Record<string, { src: string, runtimeSrc: string }> | null} */
   let bundlesSources = null;
@@ -329,11 +343,27 @@ function getViewerData(bundleStats, bundleDir, opts) {
 
     for (const statAsset of bundleStats.assets) {
       const assetFile = path.join(bundleDir, statAsset.name);
+      const expectedModuleIds = statAsset.isChild
+        ? []
+        : /** @type {StatsModule[]} */ (rootAssetModules.get(statAsset)).reduce(
+            (moduleIds, statsModule) => {
+              if (
+                typeof statsModule.id === "string" ||
+                typeof statsModule.id === "number"
+              ) {
+                moduleIds.push(statsModule.id);
+              }
+
+              return moduleIds;
+            },
+            /** @type {(string | number)[]} */ ([]),
+          );
       let bundleInfo;
 
       try {
         bundleInfo = parseBundle(assetFile, {
           sourceType: statAsset.info.javascriptModule ? "module" : "script",
+          expectedModuleIds,
         });
       } catch (err) {
         const msg =
@@ -364,9 +394,6 @@ function getViewerData(bundleStats, bundleDir, opts) {
 
   /** @typedef {{ size: number, parsedSize?: number, gzipSize?: number, brotliSize?: number, zstdSize?: number, modules: StatsModule[], tree: Folder }} Asset */
 
-  const rootModules = getBundleModules(bundleStats);
-  const rootModulesByChunk = getModulesByChunk(rootModules);
-
   const assets = bundleStats.assets.reduce((result, statAsset) => {
     /** @type {StatsModule[]} */
     let assetModules;
@@ -383,7 +410,9 @@ function getViewerData(bundleStats, bundleDir, opts) {
         assetHasModule(statAsset, statModule),
       );
     } else {
-      assetModules = getAssetModulesByChunk(statAsset, rootModulesByChunk);
+      assetModules = /** @type {StatsModule[]} */ (
+        rootAssetModules.get(statAsset)
+      );
     }
 
     const asset = (result[statAsset.name] = /** @type {Asset} */ ({
