@@ -99,11 +99,15 @@ describe("Logger", () => {
   describe("parity methods", () => {
     it("should provide log(), time(), and timeEnd() methods", () => {
       const logger = new Logger("info");
+  describe("console output", () => {
+    it("should log to console using corresponding console methods", () => {
       const consoleLogSpy = jest
         .spyOn(console, "log")
         .mockImplementation(() => {});
       const consoleTimeSpy = jest
         .spyOn(console, "time")
+      const consoleErrorSpy = jest
+        .spyOn(console, "error")
         .mockImplementation(() => {});
       const consoleTimeEndSpy = jest
         .spyOn(console, "timeEnd")
@@ -111,16 +115,27 @@ describe("Logger", () => {
 
       logger.log("log message");
       expect(consoleLogSpy).toHaveBeenCalledWith("log message");
+      const l = new Logger("debug");
+      l.debug("debug message");
+      expect(consoleLogSpy).toHaveBeenCalledWith("debug message");
 
       logger.time("timer");
       expect(consoleTimeSpy).toHaveBeenCalledWith("timer");
+      l.info("info message");
+      expect(consoleLogSpy).toHaveBeenCalledWith("info message");
 
       logger.timeEnd("timer");
       expect(consoleTimeEndSpy).toHaveBeenCalledWith("timer");
+      l.warn("warn message");
+      expect(consoleLogSpy).toHaveBeenCalledWith("warn message");
+
+      l.error("error message");
+      expect(consoleErrorSpy).toHaveBeenCalledWith("error message");
 
       consoleLogSpy.mockRestore();
       consoleTimeSpy.mockRestore();
       consoleTimeEndSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -146,6 +161,7 @@ describe("Logger", () => {
         timeAggregate: jest.fn(),
         timeAggregateEnd: jest.fn(),
         assert: jest.fn(),
+        customProp: "value",
         getChildLogger: jest.fn(() => createMockInfraLogger()),
       };
     }
@@ -167,6 +183,7 @@ describe("Logger", () => {
     });
 
     it("should emit deprecation warning when userLogLevel is 'info'", () => {
+    it("should emit deprecation warning when userLogLevel has warn active", () => {
       const mockInfra = createMockInfraLogger();
       const adapter = Logger.createInfrastructureLoggerAdapter(
         mockInfra,
@@ -217,27 +234,35 @@ describe("Logger", () => {
     });
 
     it("should forward trace, profile, and profileEnd when debug is active", () => {
+    it("should allow debug and log calls when their levels are active", () => {
       const mockInfra = createMockInfraLogger();
       const adapter = Logger.createInfrastructureLoggerAdapter(
         mockInfra,
         "debug",
       );
+      mockInfra.warn.mockClear();
 
       adapter.trace();
       expect(mockInfra.trace).toHaveBeenCalled();
+      adapter.debug("debug message");
+      expect(mockInfra.debug).toHaveBeenCalledWith("debug message");
 
       adapter.profile("label");
       expect(mockInfra.profile).toHaveBeenCalledWith("label");
 
       adapter.profileEnd("label");
       expect(mockInfra.profileEnd).toHaveBeenCalledWith("label");
+      adapter.log("log message");
+      expect(mockInfra.log).toHaveBeenCalledWith("log message");
     });
 
     it("should forward time, timeLog, timeEnd, status, clear, and groups when info is active", () => {
+    it("should suppress error call when level is silent", () => {
       const mockInfra = createMockInfraLogger();
       const adapter = Logger.createInfrastructureLoggerAdapter(
         mockInfra,
         "info",
+        "silent",
       );
 
       adapter.time("t");
@@ -263,9 +288,12 @@ describe("Logger", () => {
 
       adapter.groupEnd();
       expect(mockInfra.groupEnd).toHaveBeenCalled();
+      adapter.error("error message");
+      expect(mockInfra.error).not.toHaveBeenCalled();
     });
 
     it("should forward assert and timeAggregate regardless of log level", () => {
+    it("should forward arbitrary non-level methods and access non-function properties", () => {
       const mockInfra = createMockInfraLogger();
       const adapter = Logger.createInfrastructureLoggerAdapter(
         mockInfra,
@@ -275,12 +303,15 @@ describe("Logger", () => {
       const assertion = false;
       adapter.assert(assertion, "assert fail");
       expect(mockInfra.assert).toHaveBeenCalledWith(assertion, "assert fail");
+      adapter.time("timer");
+      expect(mockInfra.time).toHaveBeenCalledWith("timer");
 
       adapter.timeAggregate("tagg");
       expect(mockInfra.timeAggregate).toHaveBeenCalledWith("tagg");
 
       adapter.timeAggregateEnd("tagg");
       expect(mockInfra.timeAggregateEnd).toHaveBeenCalledWith("tagg");
+      expect(adapter.customProp).toBe("value");
     });
 
     it("should support setLogLevel and throw on invalid level", () => {
@@ -300,14 +331,17 @@ describe("Logger", () => {
     });
 
     it("should wrap child logger in getChildLogger", () => {
+    it("should wrap child logger in getChildLogger without re-warning", () => {
       const mockInfra = createMockInfraLogger();
       const adapter = Logger.createInfrastructureLoggerAdapter(
         mockInfra,
         "warn",
       );
+      mockInfra.warn.mockClear();
 
       const childAdapter = adapter.getChildLogger("child");
       expect(mockInfra.getChildLogger).toHaveBeenCalledWith("child");
+      expect(mockInfra.warn).not.toHaveBeenCalled();
       expect(childAdapter.activeLevels.has("warn")).toBe(true);
       expect(childAdapter.activeLevels.has("info")).toBe(false);
     });

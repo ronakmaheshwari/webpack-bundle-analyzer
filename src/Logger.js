@@ -343,13 +343,95 @@ class Logger {
    * @param {WebpackLogger} infrastructureLogger infrastructure logger
    * @param {Level=} userLogLevel user log level
    * @returns {WebpackLogger | InfrastructureLoggerAdapter} logger adapter
+   * @param {boolean=} warned whether deprecation warning has been logged
+   * @returns {WebpackLogger} logger adapter
    */
   static createInfrastructureLoggerAdapter(infrastructureLogger, userLogLevel) {
+  static createInfrastructureLoggerAdapter(
+    infrastructureLogger,
+    userLogLevel,
+    warned = false,
+  ) {
     if (typeof userLogLevel === "undefined") {
       return infrastructureLogger;
     }
 
     return new InfrastructureLoggerAdapter(infrastructureLogger, userLogLevel);
+    const levelIndex = LEVELS.indexOf(userLogLevel);
+
+    if (levelIndex === -1) {
+      throw new Error(
+        `Invalid log level "${userLogLevel}". Use one of these: ${LEVELS.join(", ")}`,
+      );
+    }
+
+    /** @type {Set<Level>} */
+    const activeLevels = new Set();
+
+    for (const [i, level] of LEVELS.entries()) {
+      if (i >= levelIndex) activeLevels.add(level);
+    }
+
+    if (!warned && activeLevels.has("warn")) {
+      infrastructureLogger.warn(
+        "The 'logLevel' option is deprecated and will be removed in a future release. " +
+          "Please use webpack's 'infrastructureLogging.level' option instead.",
+      );
+    }
+
+    return new Proxy(infrastructureLogger, {
+      get(target, prop, receiver) {
+        if (prop === "activeLevels") {
+          return activeLevels;
+        }
+
+        if (prop === "setLogLevel") {
+          return (/** @type {Level} */ level) => {
+            const idx = LEVELS.indexOf(level);
+
+            if (idx === -1) {
+              throw new Error(
+                `Invalid log level "${level}". Use one of these: ${LEVELS.join(", ")}`,
+              );
+            }
+
+            activeLevels.clear();
+
+            for (const [i, l] of LEVELS.entries()) {
+              if (i >= idx) activeLevels.add(l);
+            }
+          };
+        }
+
+        if (prop === "getChildLogger") {
+          return (/** @type {string | (() => string)} */ name) =>
+            Logger.createInfrastructureLoggerAdapter(
+              target.getChildLogger(name),
+              userLogLevel,
+              true,
+            );
+        }
+
+        const value = Reflect.get(target, prop, receiver);
+
+        if (typeof value === "function") {
+          const isManagedLevel =
+            LEVELS.includes(/** @type {Level} */ (prop)) || prop === "log";
+          const levelToCheck = prop === "log" ? "info" : prop;
+
+          if (
+            isManagedLevel &&
+            !activeLevels.has(/** @type {Level} */ (levelToCheck))
+          ) {
+            return () => {};
+          }
+
+          return value.bind(target);
+        }
+
+        return value;
+      },
+    });
   }
 }
 
