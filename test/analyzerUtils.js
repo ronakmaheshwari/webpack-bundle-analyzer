@@ -95,4 +95,238 @@ describe("getViewerData", () => {
     });
     expect(chunksAccessCount).toBe(1);
   });
+
+  it("handles child compilations with missing or undefined assets without throwing", () => {
+    const stats = {
+      children: [
+        {
+          name: "child-with-assets",
+          assets: [
+            {
+              name: "child-bundle.js",
+              size: 100,
+              chunks: [1],
+            },
+          ],
+          chunks: [
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  identifier: "./child-mod.js",
+                  name: "./child-mod.js",
+                  size: 50,
+                  chunks: [1],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "child-without-assets",
+          // assets is undefined (e.g. logging/internal child compilation)
+        },
+      ],
+    };
+
+    expect(() => getViewerData(stats)).not.toThrow();
+    const chartData = getViewerData(stats);
+    expect(chartData).toHaveLength(1);
+    expect(chartData[0].label).toBe("child-bundle.js");
+  });
+
+  it("handles when the first child compilation has undefined assets", () => {
+    const stats = {
+      children: [
+        {
+          name: "child-without-assets",
+          // assets is undefined
+        },
+        {
+          name: "child-with-assets",
+          assets: [
+            {
+              name: "child-bundle.js",
+              size: 100,
+              chunks: [1],
+            },
+          ],
+          chunks: [
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  identifier: "./child-mod.js",
+                  name: "./child-mod.js",
+                  size: 50,
+                  chunks: [1],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(() => getViewerData(stats)).not.toThrow();
+    const chartData = getViewerData(stats);
+    expect(chartData).toHaveLength(1);
+    expect(chartData[0].label).toBe("child-bundle.js");
+  });
+
+  it("handles stats provided as an array of compilations", () => {
+    const stats = [
+      {
+        assets: [
+          {
+            name: "first.js",
+            size: 100,
+            chunks: [1],
+          },
+        ],
+        chunks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                identifier: "./first.js",
+                name: "./first.js",
+                size: 50,
+                chunks: [1],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        assets: [
+          {
+            name: "second.js",
+            size: 200,
+            chunks: [2],
+          },
+        ],
+        chunks: [
+          {
+            id: 2,
+            modules: [
+              {
+                id: 2,
+                identifier: "./second.js",
+                name: "./second.js",
+                size: 80,
+                chunks: [2],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    expect(() => getViewerData(stats)).not.toThrow();
+    const chartData = getViewerData(stats);
+    expect(chartData).toHaveLength(2);
+    expect(chartData[0].label).toBe("first.js");
+    expect(chartData[1].label).toBe("second.js");
+  });
+
+  it("maps modules for child compilation assets correctly", () => {
+    const stats = {
+      children: [
+        {
+          name: "client",
+          assets: [
+            {
+              name: "client.js",
+              size: 100,
+              chunks: [1],
+            },
+          ],
+          chunks: [
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  identifier: "./client-module.js",
+                  name: "./client-module.js",
+                  size: 50,
+                  chunks: [1],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "server",
+          assets: [
+            {
+              name: "server.js",
+              size: 200,
+              chunks: [2],
+            },
+          ],
+          chunks: [
+            {
+              id: 2,
+              modules: [
+                {
+                  id: 2,
+                  identifier: "./server-module.js",
+                  name: "./server-module.js",
+                  size: 80,
+                  chunks: [2],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const chartData = getViewerData(stats);
+    expect(chartData).toHaveLength(2);
+    expect(chartData[0].label).toBe("client.js");
+    expect(chartData[0].groups).toHaveLength(1);
+    expect(chartData[1].label).toBe("server.js");
+    expect(chartData[1].groups).toHaveLength(1);
+  });
+
+  it("handles string entrypoint assets from Webpack 4", () => {
+    const stats = {
+      assets: [
+        {
+          name: "legacy.js",
+          size: 100,
+          chunks: [1],
+        },
+      ],
+      chunks: [
+        {
+          id: 1,
+          modules: [
+            {
+              id: 1,
+              identifier: "./legacy.js",
+              name: "./legacy.js",
+              size: 50,
+              chunks: [1],
+            },
+          ],
+        },
+      ],
+      entrypoints: {
+        main: {
+          name: "main",
+          assets: ["legacy.js"],
+        },
+      },
+    };
+
+    const chartData = getViewerData(stats);
+    expect(chartData[0].isInitialByEntrypoint).toEqual({ main: true });
+  });
 });

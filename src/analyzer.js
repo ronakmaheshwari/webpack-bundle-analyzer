@@ -79,20 +79,22 @@ function flatten(arr) {
 }
 
 /**
- * @param {StatsCompilation} bundleStats bundle stats
+ * @param {StatsCompilation[]} children child stats list
  * @param {string} assetName asset name
- * @returns {boolean} child asset bundlers
+ * @returns {StatsCompilation | undefined} child asset compilation
  */
-function getChildAssetBundles(bundleStats, assetName) {
-  return flatten(
-    (bundleStats.children || /** @type {StatsCompilation} */ ([])).find(
-      /**
-       * @param {StatsCompilation} child child stats
-       * @returns {string[][]} assets by chunk name
-       */
-      (child) => Object.values(child.assetsByChunkName || []),
-    ),
-  ).includes(assetName);
+function getChildAssetBundles(children, assetName) {
+  return (children || []).find((child) => {
+    if (!child) return false;
+    if (
+      Array.isArray(child.assets) &&
+      child.assets.some((asset) => asset && asset.name === assetName)
+    ) {
+      return true;
+    }
+    const chunkAssets = flatten(Object.values(child.assetsByChunkName || {}));
+    return chunkAssets.includes(assetName);
+  });
 }
 
 /**
@@ -206,8 +208,10 @@ function getChunkToInitialByEntrypoint(bundleStats) {
   const chunkToEntrypointInititalMap = {};
   for (const entrypoint of Object.values(bundleStats.entrypoints || {})) {
     for (const asset of entrypoint.assets || []) {
-      chunkToEntrypointInititalMap[asset.name] ??= {};
-      chunkToEntrypointInititalMap[asset.name][
+      const assetName = typeof asset === "string" ? asset : asset?.name;
+      if (!assetName) continue;
+      chunkToEntrypointInititalMap[assetName] ??= {};
+      chunkToEntrypointInititalMap[assetName][
         /** @type {string} */
         (entrypoint.name)
       ] = true;
@@ -255,7 +259,7 @@ function isEntryModule(statsModule) {
  */
 
 /**
- * @param {StatsCompilation} bundleStats bundle stats
+ * @param {StatsCompilation | StatsCompilation[]} bundleStats bundle stats
  * @param {string | null} bundleDir bundle dir
  * @param {ViewerDataOptions=} opts options
  * @returns {ChartData} chart data
@@ -267,34 +271,51 @@ function getViewerData(bundleStats, bundleDir, opts) {
     excludeAssets = null,
   } = opts || {};
 
+  if (!bundleStats) return [];
+
+  if (Array.isArray(bundleStats)) {
+    bundleStats = {
+      children: bundleStats,
+    };
+  }
+
   const isAssetIncluded = createAssetsFilter(excludeAssets);
+
+  // Preserve all children from the root bundleStats (e.g. for MultiCompiler or child compilations)
+  const allChildren = Array.isArray(bundleStats.children)
+    ? [...bundleStats.children]
+    : [];
 
   // Sometimes all the information is located in `children` array (e.g. problem in #10)
   if (
     (bundleStats.assets === null ||
       bundleStats.assets === undefined ||
       bundleStats.assets.length === 0) &&
-    bundleStats.children &&
-    bundleStats.children.length > 0
+    allChildren.length > 0
   ) {
-    const { children } = bundleStats;
-    [bundleStats] = bundleStats.children;
+    bundleStats = { ...allChildren[0] };
+    bundleStats.assets = Array.isArray(bundleStats.assets)
+      ? [...bundleStats.assets]
+      : [];
+
     // Sometimes if there are additional child chunks produced add them as child assets,
     // leave the 1st one as that is considered the 'root' asset.
-    for (let i = 1; i < children.length; i++) {
-      for (const asset of children[i].assets || []) {
+    for (let i = 1; i < allChildren.length; i++) {
+      for (const asset of allChildren[i]?.assets || []) {
         asset.isChild = true;
-        /** @type {StatsAsset[]} */
-        (bundleStats.assets).push(asset);
+        bundleStats.assets.push(asset);
       }
     }
-  } else if (bundleStats.children && bundleStats.children.length > 0) {
+  } else if (allChildren.length > 0) {
+    bundleStats.assets = Array.isArray(bundleStats.assets)
+      ? [...bundleStats.assets]
+      : [];
+
     // Sometimes if there are additional child chunks produced add them as child assets
-    for (const child of bundleStats.children) {
-      for (const asset of child.assets || []) {
+    for (const child of allChildren) {
+      for (const asset of child?.assets || []) {
         asset.isChild = true;
-        /** @type {StatsAsset[]} */
-        (bundleStats.assets).push(asset);
+        bundleStats.assets.push(asset);
       }
     }
   }
@@ -403,18 +424,15 @@ function getViewerData(bundleStats, bundleDir, opts) {
 
     if (statAsset.isChild) {
       // Preserve child-compilation matching because child assets use a different module list.
-      const assetBundles = getChildAssetBundles(bundleStats, statAsset.name);
+      const assetBundles = getChildAssetBundles(allChildren, statAsset.name);
       /** @type {StatsModule[]} */
-      const modules = assetBundles
-        ? // @ts-expect-error TODO looks like we have a bug with child compilation parsing, need to add test cases
-          getBundleModules(assetBundles)
-        : [];
+      const modules = assetBundles ? getBundleModules(assetBundles) : [];
       assetModules = modules.filter((statModule) =>
         assetHasModule(statAsset, statModule),
       );
     } else {
       assetModules = /** @type {StatsModule[]} */ (
-        rootAssetModules.get(statAsset)
+        rootAssetModules.get(statAsset) || []
       );
     }
 
