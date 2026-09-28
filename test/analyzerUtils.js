@@ -329,4 +329,170 @@ describe("getViewerData", () => {
     const chartData = getViewerData(stats);
     expect(chartData[0].isInitialByEntrypoint).toEqual({ main: true });
   });
+
+  it("handles entrypoint assets with empty or null items", () => {
+    const stats = {
+      assets: [
+        {
+          name: "bundle.js",
+          size: 100,
+          chunks: [1],
+        },
+      ],
+      chunks: [
+        {
+          id: 1,
+          modules: [
+            {
+              id: 1,
+              identifier: "./bundle.js",
+              name: "./bundle.js",
+              size: 50,
+              chunks: [1],
+            },
+          ],
+        },
+      ],
+      entrypoints: {
+        main: {
+          name: "main",
+          assets: [null, { name: "" }, "bundle.js"],
+        },
+      },
+    };
+
+    const chartData = getViewerData(stats);
+    expect(chartData[0].isInitialByEntrypoint).toEqual({ main: true });
+  });
+
+  it("handles null or undefined entries in children array", () => {
+    const stats = {
+      children: [
+        null,
+        {
+          name: "child",
+          assets: [
+            {
+              name: "bundle.js",
+              size: 100,
+              chunks: [1],
+            },
+          ],
+          chunks: [
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  identifier: "./bundle.js",
+                  name: "./bundle.js",
+                  size: 50,
+                  chunks: [1],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const chartData = getViewerData(stats);
+    expect(chartData).toHaveLength(1);
+    expect(chartData[0].label).toBe("bundle.js");
+  });
+
+  it("resolves pre-marked isChild assets via getChildAssetBundles fallback", () => {
+    const stats = {
+      assets: [
+        {
+          name: "fallback.js",
+          size: 100,
+          chunks: [1],
+          isChild: true,
+        },
+      ],
+      children: [
+        null,
+        {
+          name: "empty-child",
+          assets: [],
+          // no assetsByChunkName to exercise empty fallback
+        },
+        {
+          name: "child",
+          assets: [
+            {
+              name: "fallback.js",
+              size: 100,
+              chunks: [1],
+            },
+          ],
+          chunks: [
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  identifier: "./fallback-module.js",
+                  name: "./fallback-module.js",
+                  size: 50,
+                  chunks: [1],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const chartData = getViewerData(stats);
+    expect(chartData).toHaveLength(1);
+    expect(chartData[0].label).toBe("fallback.js");
+    expect(chartData[0].groups[0].label).toBe("fallback-module.js");
+  });
+
+  it("handles null or undefined bundleStats gracefully", () => {
+    expect(getViewerData(null)).toEqual([]);
+    expect(getViewerData(undefined)).toEqual([]);
+  });
+
+  it("resolves child assets by assetsByChunkName when assets array is not present", () => {
+    const stats = {
+      assets: [
+        {
+          name: "chunk-asset.js",
+          size: 100,
+          chunks: [1],
+          isChild: true,
+        },
+      ],
+      children: [
+        {
+          name: "legacy-child",
+          assetsByChunkName: {
+            main: ["chunk-asset.js"],
+          },
+          chunks: [
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  identifier: "./chunk-mod.js",
+                  name: "./chunk-mod.js",
+                  size: 50,
+                  chunks: [1],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const chartData = getViewerData(stats);
+    expect(chartData).toHaveLength(1);
+    expect(chartData[0].label).toBe("chunk-asset.js");
+    expect(chartData[0].groups[0].label).toBe("chunk-mod.js");
+  });
 });

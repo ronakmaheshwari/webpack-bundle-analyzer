@@ -84,7 +84,7 @@ function flatten(arr) {
  * @returns {StatsCompilation | undefined} child asset compilation
  */
 function getChildAssetBundles(children, assetName) {
-  return (children || []).find((child) => {
+  return children.find((child) => {
     if (!child) return false;
     if (
       Array.isArray(child.assets) &&
@@ -285,6 +285,8 @@ function getViewerData(bundleStats, bundleDir, opts) {
   const allChildren = Array.isArray(bundleStats.children)
     ? [...bundleStats.children]
     : [];
+  /** @type {WeakMap<StatsAsset, StatsCompilation>} */
+  const childAssetBundles = new WeakMap();
 
   // Sometimes all the information is located in `children` array (e.g. problem in #10)
   if (
@@ -301,19 +303,20 @@ function getViewerData(bundleStats, bundleDir, opts) {
     // Sometimes if there are additional child chunks produced add them as child assets,
     // leave the 1st one as that is considered the 'root' asset.
     for (let i = 1; i < allChildren.length; i++) {
-      for (const asset of allChildren[i]?.assets || []) {
+      const child = allChildren[i];
+      for (const asset of child?.assets || []) {
+        childAssetBundles.set(asset, child);
         asset.isChild = true;
         bundleStats.assets.push(asset);
       }
     }
   } else if (allChildren.length > 0) {
-    bundleStats.assets = Array.isArray(bundleStats.assets)
-      ? [...bundleStats.assets]
-      : [];
+    bundleStats.assets = [.../** @type {StatsAsset[]} */ (bundleStats.assets)];
 
     // Sometimes if there are additional child chunks produced add them as child assets
     for (const child of allChildren) {
       for (const asset of child?.assets || []) {
+        childAssetBundles.set(asset, child);
         asset.isChild = true;
         bundleStats.assets.push(asset);
       }
@@ -424,7 +427,9 @@ function getViewerData(bundleStats, bundleDir, opts) {
 
     if (statAsset.isChild) {
       // Preserve child-compilation matching because child assets use a different module list.
-      const assetBundles = getChildAssetBundles(allChildren, statAsset.name);
+      const assetBundles =
+        childAssetBundles.get(statAsset) ||
+        getChildAssetBundles(allChildren, statAsset.name);
       /** @type {StatsModule[]} */
       const modules = assetBundles ? getBundleModules(assetBundles) : [];
       assetModules = modules.filter((statModule) =>
