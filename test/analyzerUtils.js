@@ -186,6 +186,12 @@ describe("getViewerData", () => {
             chunks: [1],
           },
         ],
+        entrypoints: {
+          firstEntry: {
+            name: "firstEntry",
+            assets: [{ name: "first.js" }],
+          },
+        },
         chunks: [
           {
             id: 1,
@@ -209,6 +215,12 @@ describe("getViewerData", () => {
             chunks: [2],
           },
         ],
+        entrypoints: {
+          secondEntry: {
+            name: "secondEntry",
+            assets: [{ name: "second.js" }],
+          },
+        },
         chunks: [
           {
             id: 2,
@@ -230,7 +242,9 @@ describe("getViewerData", () => {
     const chartData = getViewerData(stats);
     expect(chartData).toHaveLength(2);
     expect(chartData[0].label).toBe("first.js");
+    expect(chartData[0].isInitialByEntrypoint).toEqual({ firstEntry: true });
     expect(chartData[1].label).toBe("second.js");
+    expect(chartData[1].isInitialByEntrypoint).toEqual({ secondEntry: true });
   });
 
   it("maps modules for child compilation assets correctly", () => {
@@ -494,5 +508,84 @@ describe("getViewerData", () => {
     expect(chartData).toHaveLength(1);
     expect(chartData[0].label).toBe("chunk-asset.js");
     expect(chartData[0].groups[0].label).toBe("chunk-mod.js");
+  });
+
+  it("preserves entrypoints for both root and child compilations when root also has assets", () => {
+    const stats = {
+      assets: [
+        {
+          name: "root.js",
+          size: 100,
+          chunks: [1],
+        },
+        {
+          name: "unmatched-child.js",
+          size: 50,
+          chunks: [99],
+          isChild: true,
+        },
+      ],
+      entrypoints: {
+        rootEntry: {
+          name: "rootEntry",
+          assets: [{ name: "root.js" }],
+        },
+      },
+      chunks: [
+        {
+          id: 1,
+          modules: [
+            {
+              id: 1,
+              identifier: "./root.js",
+              name: "./root.js",
+              size: 50,
+              chunks: [1],
+            },
+          ],
+        },
+      ],
+      children: [
+        {
+          name: "worker-child",
+          assets: [
+            {
+              name: "worker.js",
+              size: 150,
+              chunks: [2],
+            },
+          ],
+          entrypoints: {
+            workerEntry: {
+              name: "workerEntry",
+              assets: [{ name: "worker.js" }],
+            },
+          },
+          chunks: [
+            {
+              id: 2,
+              modules: [
+                {
+                  id: 2,
+                  identifier: "./worker.js",
+                  name: "./worker.js",
+                  size: 75,
+                  chunks: [2],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const chartData = getViewerData(stats);
+    expect(chartData).toHaveLength(3);
+    expect(chartData[0].label).toBe("root.js");
+    expect(chartData[0].isInitialByEntrypoint).toEqual({ rootEntry: true });
+    expect(chartData[1].label).toBe("unmatched-child.js");
+    expect(chartData[1].isInitialByEntrypoint).toEqual({});
+    expect(chartData[2].label).toBe("worker.js");
+    expect(chartData[2].isInitialByEntrypoint).toEqual({ workerEntry: true });
   });
 });

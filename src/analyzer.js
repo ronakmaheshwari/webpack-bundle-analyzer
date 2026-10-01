@@ -197,7 +197,7 @@ function getAssetModulesByChunk(statsAsset, modulesByChunk) {
 /** @typedef {Record<string, Record<string, boolean>>} ChunkToInitialByEntrypoint */
 
 /**
- * @param {StatsCompilation} bundleStats bundle stats
+ * @param {StatsCompilation | undefined} bundleStats bundle stats
  * @returns {ChunkToInitialByEntrypoint} chunk to initial by entrypoint
  */
 function getChunkToInitialByEntrypoint(bundleStats) {
@@ -419,11 +419,16 @@ function getViewerData(bundleStats, bundleDir, opts) {
     }
   }
 
-  /** @typedef {{ size: number, parsedSize?: number, gzipSize?: number, brotliSize?: number, zstdSize?: number, modules: StatsModule[], tree: Folder }} Asset */
+  const rootChunkToInitialByEntrypoint =
+    getChunkToInitialByEntrypoint(bundleStats);
+
+  /** @typedef {{ size: number, parsedSize?: number, gzipSize?: number, brotliSize?: number, zstdSize?: number, modules: StatsModule[], tree: Folder, isInitialByEntrypoint: Record<string, boolean> }} Asset */
 
   const assets = bundleStats.assets.reduce((result, statAsset) => {
     /** @type {StatsModule[]} */
     let assetModules;
+    /** @type {Record<string, boolean>} */
+    let isInitialByEntrypoint;
 
     if (statAsset.isChild) {
       // Preserve child-compilation matching because child assets use a different module list.
@@ -435,10 +440,14 @@ function getViewerData(bundleStats, bundleDir, opts) {
       assetModules = modules.filter((statModule) =>
         assetHasModule(statAsset, statModule),
       );
+      isInitialByEntrypoint =
+        getChunkToInitialByEntrypoint(assetBundles)[statAsset.name] ?? {};
     } else {
       assetModules = /** @type {StatsModule[]} */ (
         rootAssetModules.get(statAsset) || []
       );
+      isInitialByEntrypoint =
+        rootChunkToInitialByEntrypoint[statAsset.name] ?? {};
     }
 
     // A module that is a part of more than one asset is one stats object. Every asset that
@@ -449,6 +458,7 @@ function getViewerData(bundleStats, bundleDir, opts) {
 
     const asset = (result[statAsset.name] = /** @type {Asset} */ ({
       size: statAsset.size,
+      isInitialByEntrypoint,
     }));
     const assetSources =
       bundlesSources && Object.hasOwn(bundlesSources, statAsset.name)
@@ -526,8 +536,6 @@ function getViewerData(bundleStats, bundleDir, opts) {
     return result;
   }, /** @type {Record<string, Asset>} */ ({}));
 
-  const chunkToInitialByEntrypoint = getChunkToInitialByEntrypoint(bundleStats);
-
   return Object.entries(assets).map(([filename, asset]) => ({
     label: filename,
     isAsset: true,
@@ -541,7 +549,7 @@ function getViewerData(bundleStats, bundleDir, opts) {
     brotliSize: asset.brotliSize,
     zstdSize: asset.zstdSize,
     groups: Object.values(asset.tree.children).map((i) => i.toChartData()),
-    isInitialByEntrypoint: chunkToInitialByEntrypoint[filename] ?? {},
+    isInitialByEntrypoint: asset.isInitialByEntrypoint,
   }));
 }
 
